@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Jogo de Cartas por Turnos</title>
+  <style>
+    body { font-family: Arial; background: #1a1a1a; color: white; text-align: center; }
+    .card-grid, .battle-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin: 20px; }
+    .card {
+      width: 120px; padding: 10px; border: 2px solid white; border-radius: 10px;
+      background-color: #333; cursor: pointer; transition: transform 0.2s;
+    }
+    .card img { width: 100%; border-radius: 5px; }
+    .card:hover { transform: scale(1.05); border-color: gold; }
+    .selected { border-color: lime; }
+    #startBtn, #resetBtn {
+      margin-top: 20px; padding: 10px 20px; font-size: 16px;
+      background: #444; color: white; border: none; border-radius: 5px; cursor: pointer;
+    }
+    #startBtn:hover, #resetBtn:hover { background: #666; }
+    .disabled { pointer-events: none; opacity: 0.6; }
+    .dead { filter: grayscale(100%); opacity: 0.5; }
+  </style>
+</head>
+<body>
+
+  <h1>Selecione 5 Cartas</h1>
+  <div id="selection" class="card-grid"></div>
+  <button id="startBtn" disabled>Começar a Batalha</button>
+
+  <div id="battle" style="display:none;">
+    <h2>Campo de Batalha</h2>
+    <h3>Inimigos</h3>
+    <div id="enemyField" class="battle-grid"></div>
+
+    <h3>Suas Cartas</h3>
+    <div id="playerField" class="battle-grid"></div>
+
+    <button id="resetBtn">Reiniciar</button>
+    <p id="status"></p>
+  </div>
+
+  <script>
+    const allCards = [
+      { name: "Arqueiro Fantasma", atk: 30, hp: 80, img: "Arqueiro Fantasma.png" },
+      { name: "Cavaleiro Celeste", atk: 50, hp: 100, img: "Cavaleiro Celeste.png" },
+      { name: "Cavaleiro da morte", atk: 40, hp: 90, img: "Cavaleiro da morte.png" },
+      { name: "Cavaleiro do caos", atk: 60, hp: 85, img: "Cavaleiro do caos.png" },
+      { name: "Dragão de Ébano", atk: 50, hp: 110, img: "Dragão de Ébano.png" },
+      { name: "Feiticeira Sombria", atk: 40, hp: 85, img: "Feiticeira Sombria.png" },
+      { name: "Gigante de Pedra", atk: 80, hp: 130, img: "Gigante de Pedra.png" },
+      { name: "Gold- Fire", atk: 100, hp: 80, img: "Gold- Fire.png" },
+      { name: "Guardião do Reino", atk: 55, hp: 110, img: "Guardião do Reino.png" },
+      { name: "Mago de Gelo", atk: 55, hp: 130, img: "Mago de Gelo.png" },
+      { name: "O Ultimo Cavaleiro", atk: 50, hp: 80, img: "O Ultimo Cavaleiro.png" },
+      { name: "Paladino da Luz", atk: 60, hp: 90, img: "Paladino da Luz.png" },
+      { name: "Senhor das Lâminas", atk: 70, hp: 95, img: "Senhor das Lâminas.png" },
+      { name: "Guardião da Florestade", atk: 100, hp: 100, img: "Guardião da Florestade.png" },
+
+    ];
+
+    const selectionDiv = document.getElementById("selection");
+    const startBtn = document.getElementById("startBtn");
+    const battleDiv = document.getElementById("battle");
+    const playerField = document.getElementById("playerField");
+    const enemyField = document.getElementById("enemyField");
+    const statusP = document.getElementById("status");
+    const resetBtn = document.getElementById("resetBtn");
+
+    // Sons e músicas
+    const audioSelection = new Audio('sounds/musica_selecao.mp3');
+    audioSelection.loop = true;
+    const audioBattle = new Audio('sounds/musica_batalha.mp3');
+    audioBattle.loop = true;
+
+    const audioClick = new Audio('sounds/selecionar.mp3');
+    const audioAttack = new Audio('sounds/ataque.mp3');
+    const audioDamage = new Audio('sounds/dano.mp3');
+    const audioDead = new Audio('sounds/derrotado.mp3');
+    const audioVictory = new Audio('sounds/vitoria.mp3');
+    const audioDefeat = new Audio('sounds/derrota.mp3');
+
+    let selectedCards = [];
+    let playerCards = [], enemyCards = [];
+    let selectedAttacker = null;
+    let gameOver = false;
+
+    // Tocar música seleção após o primeiro clique na seleção de cartas
+    allCards.forEach((card, index) => {
+      const el = createCardElement(card);
+      el.onclick = () => {
+        if (audioSelection.paused) {
+          audioSelection.play().catch(() => {});
+        }
+        
+        audioClick.play();
+
+        if (el.classList.contains("selected")) {
+          el.classList.remove("selected");
+          selectedCards = selectedCards.filter(c => c !== card);
+        } else if (selectedCards.length < 5) {
+          el.classList.add("selected");
+          selectedCards.push(card);
+        }
+        startBtn.disabled = selectedCards.length !== 5;
+      };
+      selectionDiv.appendChild(el);
+    });
+
+    startBtn.onclick = () => {
+      audioSelection.pause();
+      audioBattle.play();
+
+      playerCards = selectedCards.map(c => ({ ...c, currentHp: c.hp }));
+      enemyCards = shuffle([...allCards])
+        .filter(c => !selectedCards.includes(c))
+        .slice(0, 5)
+        .map(c => ({ ...c, currentHp: c.hp }));
+
+      startBattle();
+    };
+
+    resetBtn.onclick = () => window.location.reload();
+
+    function startBattle() {
+      selectionDiv.style.display = "none";
+      startBtn.style.display = "none";
+      battleDiv.style.display = "block";
+      renderBattle();
+    }
+
+    function renderBattle() {
+      playerField.innerHTML = "";
+      enemyField.innerHTML = "";
+      statusP.textContent = "";
+
+      playerCards.forEach((card, i) => {
+        const el = createCardElement(card, card.currentHp);
+        if (card.currentHp > 0) {
+          el.onclick = () => {
+            if (gameOver || selectedAttacker) return; // bloqueia clique duplo ou após fim de jogo
+            selectedAttacker = { ...card, index: i };
+            highlightTargets(enemyField, enemyCards, (target, j) => {
+              audioAttack.play();
+
+              target.currentHp -= selectedAttacker.atk;
+              audioDamage.play();
+
+              if (target.currentHp < 0) target.currentHp = 0;
+              if (target.currentHp === 0) {
+                audioDead.play();
+              }
+              selectedAttacker = null;
+              renderBattle();
+              setTimeout(enemyTurn, 1000);
+              checkVictory();
+            });
+          };
+        } else {
+          el.classList.add("dead");
+        }
+        playerField.appendChild(el);
+      });
+
+      enemyCards.forEach(card => {
+        const el = createCardElement(card, card.currentHp);
+        if (card.currentHp <= 0) el.classList.add("dead");
+        enemyField.appendChild(el);
+      });
+    }
+
+    function highlightTargets(field, cards, callback) {
+      [...field.children].forEach((el, idx) => {
+        if (cards[idx].currentHp > 0) {
+          el.style.borderColor = "red";
+          el.onclick = () => callback(cards[idx], idx);
+        } else {
+          el.style.borderColor = "";
+          el.onclick = null;
+        }
+      });
+    }
+
+    function enemyTurn() {
+      if (gameOver) return;
+
+      // Bloqueia cliques do jogador enquanto inimigo ataca
+      playerField.style.pointerEvents = "none";
+
+      const aliveEnemies = enemyCards.filter(c => c.currentHp > 0);
+      if (aliveEnemies.length === 0) return;
+
+      // Escolhe o primeiro inimigo vivo para atacar
+      const attacker = aliveEnemies[0];
+
+      const alivePlayers = playerCards.filter(c => c.currentHp > 0);
+      if (alivePlayers.length === 0) return;
+
+      // Escolhe o alvo com maior ataque entre as cartas vivas do jogador
+const target = alivePlayers.reduce((maxAtkCard, card) => {
+  return (card.atk > maxAtkCard.atk) ? card : maxAtkCard;
+}, alivePlayers[0]);
+
+     
+
+      audioAttack.play();
+
+      target.currentHp -= attacker.atk;
+      audioDamage.play();
+
+      if (target.currentHp < 0) target.currentHp = 0;
+      if (target.currentHp === 0) {
+        audioDead.play();
+      }
+
+      renderBattle();
+
+      setTimeout(() => {
+        playerField.style.pointerEvents = "auto";
+        checkVictory();
+      }, 800);
+    }
+
+    function checkVictory() {
+      const playerAlive = playerCards.some(c => c.currentHp > 0);
+      const enemyAlive = enemyCards.some(c => c.currentHp > 0);
+
+      if (!playerAlive) {
+        statusP.textContent = "Você Perdeu!";
+        audioBattle.pause();
+        audioDefeat.play();
+        gameOver = true;
+        playerField.style.pointerEvents = "none";
+        enemyField.style.pointerEvents = "none";
+      }
+      if (!enemyAlive) {
+        statusP.textContent = "Você Venceu!";
+ 	audioBattle.pause();
+        audioVictory.play();
+      }
+    }
+
+    function createCardElement(card, currentHp = null) {
+      const div = document.createElement("div");
+      div.className = "card";
+      div.innerHTML = `
+        <img src="imagens/${card.img}" alt="${card.name}" />
+        <strong>${card.name}</strong><br>
+        ATK: ${card.atk} <br> 
+        HP: ${currentHp !== null ? currentHp : card.hp}
+      `;
+      return div;
+    }
+
+    function shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+  </script>
+
+</body>
+</html>
